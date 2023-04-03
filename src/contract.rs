@@ -150,7 +150,7 @@ pub fn instantiate(
         admin: admin.clone(),
         token_id: None,
         initial_height: env.block.height,
-        path_root_claim_blocks: msg.path_root_claim_blocks,
+        reserve_root_for_n_blocks: msg.reserve_root_for_n_blocks,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -227,7 +227,7 @@ pub fn execute_receive_cw20(
     };
 
     let is_in_claim_window_ = is_in_claim_window(
-        config.path_root_claim_blocks,
+        config.reserve_root_for_n_blocks,
         config.initial_height,
         env.block.height,
     );
@@ -314,7 +314,7 @@ pub fn execute_mint_path(
     let token_id = config.token_id.unwrap();
 
     let is_in_claim_window_ = is_in_claim_window(
-        config.path_root_claim_blocks,
+        config.reserve_root_for_n_blocks,
         config.initial_height,
         env.block.height,
     );
@@ -534,7 +534,7 @@ pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary>
 
     to_binary(&ClaimInfoResponse {
         is_in_claim_window: is_in_claim_window(
-            config.path_root_claim_blocks,
+            config.reserve_root_for_n_blocks,
             config.initial_height,
             env.block.height,
         ),
@@ -561,7 +561,7 @@ pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, Con
         token_id: config_v100.token_id,
         whoami_address: config_v100.whoami_address,
         initial_height: env.block.height,
-        path_root_claim_blocks: msg.path_root_claim_blocks,
+        reserve_root_for_n_blocks: msg.reserve_root_for_n_blocks,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -569,9 +569,9 @@ pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, Con
     Ok(Response::new()
         .add_attribute("action", "migrate")
         .add_attribute(
-            "path_root_claim_blocks",
+            "reserve_root_for_n_blocks",
             config
-                .path_root_claim_blocks
+                .reserve_root_for_n_blocks
                 .unwrap_or_default()
                 .to_string(),
         ))

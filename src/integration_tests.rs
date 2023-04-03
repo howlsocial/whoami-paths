@@ -147,14 +147,14 @@ mod tests {
         app: &mut App,
         whoami_addr: Addr,
         payment_details: Option<PaymentDetails>,
-        path_root_claim_blocks: Option<u64>,
+        reserve_root_for_n_blocks: Option<u64>,
     ) -> Addr {
         let whoami_paths = app.store_code(contract_whoami_paths());
         let msg = InstantiateMsg {
             admin: ADMIN.to_string(),
             whoami_address: whoami_addr.to_string(),
             payment_details,
-            path_root_claim_blocks,
+            reserve_root_for_n_blocks,
         };
         app.instantiate_contract(
             whoami_paths,
@@ -170,14 +170,14 @@ mod tests {
     fn setup_test_case(
         app: &mut App,
         payment_details: Option<PaymentDetails>,
-        path_root_claim_blocks: Option<u64>,
+        reserve_root_for_n_blocks: Option<u64>,
     ) -> (Addr, Addr) {
         let whoami_addr = instantiate_whoami(app);
         let paths_addr = instantiate_whoami_paths(
             app,
             whoami_addr.clone(),
             payment_details,
-            path_root_claim_blocks,
+            reserve_root_for_n_blocks,
         );
         app.update_block(next_block);
         (whoami_addr, paths_addr)
@@ -186,9 +186,9 @@ mod tests {
     fn setup_test_case_with_name(
         app: &mut App,
         payment_details: Option<PaymentDetails>,
-        path_root_claim_blocks: Option<u64>,
+        reserve_root_for_n_blocks: Option<u64>,
     ) -> (Addr, Addr, String) {
-        let (whoami, paths) = setup_test_case(app, payment_details, path_root_claim_blocks);
+        let (whoami, paths) = setup_test_case(app, payment_details, reserve_root_for_n_blocks);
 
         // Mint the name
         let token_id = "root_name".to_string();

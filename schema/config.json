@@ -16,7 +16,7 @@
       "format": "uint64",
       "minimum": 0.0
     },
-    "path_root_claim_blocks": {
+    "reserve_root_for_n_blocks": {
       "type": [
         "integer",
         "null"
