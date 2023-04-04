@@ -150,6 +150,7 @@ pub fn instantiate(
         admin: admin.clone(),
         token_id: None,
         initial_height: env.block.height,
+        reserve_root_names: msg.reserve_root_names,
         reserve_root_for_n_blocks: msg.reserve_root_for_n_blocks,
     };
 
@@ -233,6 +234,10 @@ pub fn execute_receive_cw20(
     );
 
     if is_in_claim_window_ {
+        if !config.reserve_root_names {
+            return Err(ContractError::ReserveRootNameDisabled {});
+        }
+
         let path_as_base_owner =
             get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
 
@@ -320,6 +325,10 @@ pub fn execute_mint_path(
     );
 
     if is_in_claim_window_ {
+        if !config.reserve_root_names {
+            return Err(ContractError::ReserveRootNameDisabled {});
+        }
+
         let path_as_base_owner =
             get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
 
@@ -561,6 +570,7 @@ pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, Con
         token_id: config_v100.token_id,
         whoami_address: config_v100.whoami_address,
         initial_height: env.block.height,
+        reserve_root_names: msg.reserve_root_names,
         reserve_root_for_n_blocks: msg.reserve_root_for_n_blocks,
     };
 

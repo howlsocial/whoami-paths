@@ -4,6 +4,7 @@
   "type": "object",
   "required": [
     "admin",
+    "reserve_root_names",
     "whoami_address"
   ],
   "properties": {
@@ -27,6 +28,9 @@
       ],
       "format": "uint64",
       "minimum": 0.0
+    },
+    "reserve_root_names": {
+      "type": "boolean"
     },
     "whoami_address": {
       "type": "string"

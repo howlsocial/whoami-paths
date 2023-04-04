@@ -5,6 +5,7 @@
   "required": [
     "admin",
     "initial_height",
+    "reserve_root_names",
     "whoami_address"
   ],
   "properties": {
@@ -23,6 +24,9 @@
       ],
       "format": "uint64",
       "minimum": 0.0
+    },
+    "reserve_root_names": {
+      "type": "boolean"
     },
     "token_id": {
       "type": [

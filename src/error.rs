@@ -37,6 +37,9 @@ pub enum ContractError {
     #[error("The token address provided is not a valid CW20 token")]
     InvalidCw20 {},
 
+    #[error("Reserve root names disabled")]
+    ReserveRootNameDisabled {},
+
     #[error("For the path exists root token with same name")]
     RootInClaimWindowToken {},
 }
