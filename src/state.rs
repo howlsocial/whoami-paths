@@ -10,6 +10,9 @@ pub struct Config {
     pub whoami_address: String,
     pub admin: Addr,
     pub token_id: Option<String>, // If we have received a name to mint paths off this will be the token_id
+    pub reserve_root_names: bool,
+    pub reserve_root_for_n_blocks: Option<u64>,
+    pub initial_height: u64,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");

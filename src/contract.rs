@@ -1,18 +1,21 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    from_binary, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
-    Response, StdResult, Uint128, WasmMsg,
+    ensure_eq, from_binary, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env,
+    MessageInfo, QuerierWrapper, Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
-use cw721::Cw721ReceiveMsg;
+use cw721::{Cw721QueryMsg, Cw721ReceiveMsg, OwnerOfResponse};
+use cw_storage_plus::Item;
 use cw_utils::{must_pay, nonpayable};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ContractError;
 use crate::msg::{
-    ExecuteMsg, InstantiateMsg, PaymentDetails, PaymentDetailsBalanceResponse,
-    PaymentDetailsResponse, QueryMsg, ReceiveMsg,
+    ClaimInfoResponse, ExecuteMsg, InstantiateMsg, MigrateMsg, PaymentDetails,
+    PaymentDetailsBalanceResponse, PaymentDetailsResponse, QueryMsg, ReceiveMsg,
 };
 use crate::state::{Config, CONFIG, PAYMENT_DETAILS};
 
@@ -75,6 +78,81 @@ pub fn mint_path_msg(
     Ok(vec![wasm_msg1, wasm_msg2])
 }
 
+fn get_dens_owner(
+    querier: &QuerierWrapper,
+    token_id: String,
+    address_minting_the_path: String,
+) -> Option<String> {
+    let resp: Option<String> = querier
+        .query_wasm_smart(
+            &address_minting_the_path,
+            &Cw721QueryMsg::OwnerOf {
+                token_id: token_id,
+                include_expired: None,
+            },
+        )
+        .map(|resp: OwnerOfResponse| resp.owner)
+        .ok();
+
+    return resp;
+}
+
+fn is_in_claim_window(
+    path_root_claim_window: Option<u64>,
+    init_height: u64,
+    current_height: u64,
+) -> bool {
+    match path_root_claim_window {
+        Some(w) => {
+            if let Some(height_plus_claim_window) = init_height.checked_add(w) {
+                height_plus_claim_window > current_height
+            } else {
+                false
+            }
+        }
+        None => false,
+    }
+}
+
+fn is_claimable(
+    env: &Env,
+    querier: &QuerierWrapper,
+    config: &Config,
+    path: &str,
+    sender: &str,
+) -> Result<bool, ContractError> {
+    let is_in_claim_window_ = is_in_claim_window(
+        config.reserve_root_for_n_blocks,
+        config.initial_height,
+        env.block.height,
+    );
+
+    if is_in_claim_window_ {
+        ensure_eq!(
+            config.reserve_root_names,
+            true,
+            ContractError::ReserveRootNameDisabled {}
+        );
+
+        let path_as_base_owner =
+            get_dens_owner(querier, String::from(path), config.whoami_address.clone());
+
+        if let Some(path_as_base_owner) = path_as_base_owner {
+            ensure_eq!(
+                sender,
+                path_as_base_owner,
+                ContractError::RootInClaimWindowToken {}
+            );
+
+            Ok::<bool, ContractError>(true)
+        } else {
+            Ok(false)
+        }
+    } else {
+        Ok(false)
+    }
+}
+
 fn mint(
     env: Env,
     whoami_address: String,
@@ -103,7 +181,7 @@ fn mint(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -116,6 +194,9 @@ pub fn instantiate(
         whoami_address: whoami_address.to_string(),
         admin: admin.clone(),
         token_id: None,
+        initial_height: env.block.height,
+        reserve_root_names: msg.reserve_root_names,
+        reserve_root_for_n_blocks: msg.reserve_root_for_n_blocks,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -183,9 +264,23 @@ pub fn execute_receive_cw20(
         // We have no token to mint off of
         return Err(ContractError::NoRootToken {});
     }
-    let token_id = config.token_id.unwrap();
 
+    let token_id = String::from(config.token_id.as_ref().unwrap());
     let payment_details = payment_details.unwrap();
+    let recv_msg: ReceiveMsg = from_binary(&cw20_receive.msg)?;
+    let path = match recv_msg {
+        ReceiveMsg::MintPath { path } => path,
+    };
+
+    if is_claimable(
+        &env,
+        &deps.querier,
+        &config,
+        path.as_str(),
+        cw20_receive.sender.as_str(),
+    )? {
+        return Err(ContractError::NoPaymentNeeded {});
+    }
 
     match payment_details {
         PaymentDetails::Cw20 {
@@ -196,12 +291,6 @@ pub fn execute_receive_cw20(
                 // Unrecognised token
                 return Err(ContractError::UnrecognisedToken {});
             }
-
-            let recv_msg: ReceiveMsg = from_binary(&cw20_receive.msg)?;
-
-            let path = match recv_msg {
-                ReceiveMsg::MintPath { path } => path,
-            };
 
             mint(
                 env,
@@ -259,10 +348,18 @@ pub fn execute_mint_path(
         // No token to mint off of
         return Err(ContractError::NoRootToken {});
     }
-    let token_id = config.token_id.unwrap();
+    let token_id = String::from(config.token_id.as_ref().unwrap());
 
-    if let Some(payment_details) = payment_details {
-        match payment_details {
+    let override_payment = is_claimable(
+        &env,
+        &deps.querier,
+        &config,
+        path.as_str(),
+        info.sender.as_str(),
+    )?;
+
+    if payment_details.is_some() && !override_payment {
+        match payment_details.unwrap() {
             PaymentDetails::Native { denom, amount } => {
                 let paid_amount = must_pay(&info, &denom)?;
                 mint(
@@ -420,6 +517,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             payment_details: PAYMENT_DETAILS.may_load(deps.storage)?,
         }),
         QueryMsg::PaymentDetailsBalance {} => query_payment_details_balance(deps, env),
+        QueryMsg::ClaimInfo { path } => query_claim_info(deps, env, path),
     }
 }
 
@@ -453,4 +551,55 @@ pub fn query_payment_details_balance(deps: Deps, env: Env) -> StdResult<Binary> 
             amount: Uint128::zero(),
         })
     }
+}
+
+pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary> {
+    let config = CONFIG.load(deps.storage)?;
+    let path_as_base_owner =
+        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+
+    to_binary(&ClaimInfoResponse {
+        is_in_claim_window: is_in_claim_window(
+            config.reserve_root_for_n_blocks,
+            config.initial_height,
+            env.block.height,
+        ),
+        path_as_base_owner,
+    })
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+    pub struct ConfigV100 {
+        pub whoami_address: String,
+        pub admin: Addr,
+        pub token_id: Option<String>,
+    }
+
+    const CONFIG_V100: Item<ConfigV100> = Item::new("config");
+    let config_v100 = CONFIG_V100.load(deps.storage)?;
+
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    let config = Config {
+        admin: config_v100.admin,
+        token_id: config_v100.token_id,
+        whoami_address: config_v100.whoami_address,
+        initial_height: env.block.height,
+        reserve_root_names: msg.reserve_root_names,
+        reserve_root_for_n_blocks: msg.reserve_root_for_n_blocks,
+    };
+
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "migrate")
+        .add_attribute(
+            "reserve_root_for_n_blocks",
+            config
+                .reserve_root_for_n_blocks
+                .unwrap_or_default()
+                .to_string(),
+        ))
 }
