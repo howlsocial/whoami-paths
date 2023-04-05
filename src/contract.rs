@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    from_binary, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
-    QuerierWrapper, Response, StdResult, Uint128, WasmMsg,
+    ensure_eq, from_binary, to_binary, Addr, BankMsg, Binary, CosmosMsg, Deps, DepsMut, Env,
+    MessageInfo, QuerierWrapper, Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
@@ -103,8 +103,53 @@ fn is_in_claim_window(
     current_height: u64,
 ) -> bool {
     match path_root_claim_window {
-        Some(w) => init_height + u64::from(w) > current_height,
+        Some(w) => {
+            if let Some(height_plus_claim_window) = init_height.checked_add(w) {
+                height_plus_claim_window > current_height
+            } else {
+                false
+            }
+        }
         None => false,
+    }
+}
+
+fn is_claimable(
+    env: &Env,
+    querier: &QuerierWrapper,
+    config: &Config,
+    path: &str,
+    sender: &str,
+) -> Result<bool, ContractError> {
+    let is_in_claim_window_ = is_in_claim_window(
+        config.reserve_root_for_n_blocks,
+        config.initial_height,
+        env.block.height,
+    );
+
+    if is_in_claim_window_ {
+        ensure_eq!(
+            config.reserve_root_names,
+            true,
+            ContractError::ReserveRootNameDisabled {}
+        );
+
+        let path_as_base_owner =
+            get_dens_owner(querier, String::from(path), config.whoami_address.clone());
+
+        if let Some(path_as_base_owner) = path_as_base_owner {
+            ensure_eq!(
+                sender,
+                path_as_base_owner,
+                ContractError::RootInClaimWindowToken {}
+            );
+
+            Ok::<bool, ContractError>(true)
+        } else {
+            Ok(false)
+        }
+    } else {
+        Ok(false)
     }
 }
 
@@ -220,34 +265,21 @@ pub fn execute_receive_cw20(
         return Err(ContractError::NoRootToken {});
     }
 
-    let token_id = config.token_id.unwrap();
+    let token_id = String::from(config.token_id.as_ref().unwrap());
     let payment_details = payment_details.unwrap();
     let recv_msg: ReceiveMsg = from_binary(&cw20_receive.msg)?;
     let path = match recv_msg {
         ReceiveMsg::MintPath { path } => path,
     };
 
-    let is_in_claim_window_ = is_in_claim_window(
-        config.reserve_root_for_n_blocks,
-        config.initial_height,
-        env.block.height,
-    );
-
-    if is_in_claim_window_ {
-        if !config.reserve_root_names {
-            return Err(ContractError::ReserveRootNameDisabled {});
-        }
-
-        let path_as_base_owner =
-            get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
-
-        if let Some(path_as_base_owner) = path_as_base_owner {
-            if cw20_receive.sender == path_as_base_owner {
-                return Err(ContractError::NoPaymentNeeded {});
-            } else {
-                return Err(ContractError::RootInClaimWindowToken {});
-            }
-        }
+    if is_claimable(
+        &env,
+        &deps.querier,
+        &config,
+        path.as_str(),
+        cw20_receive.sender.as_str(),
+    )? {
+        return Err(ContractError::NoPaymentNeeded {});
     }
 
     match payment_details {
@@ -311,38 +343,23 @@ pub fn execute_mint_path(
     path: String,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let mut payment_details = PAYMENT_DETAILS.may_load(deps.storage)?;
+    let payment_details = PAYMENT_DETAILS.may_load(deps.storage)?;
     if config.token_id.is_none() {
         // No token to mint off of
         return Err(ContractError::NoRootToken {});
     }
-    let token_id = config.token_id.unwrap();
+    let token_id = String::from(config.token_id.as_ref().unwrap());
 
-    let is_in_claim_window_ = is_in_claim_window(
-        config.reserve_root_for_n_blocks,
-        config.initial_height,
-        env.block.height,
-    );
+    let override_payment = is_claimable(
+        &env,
+        &deps.querier,
+        &config,
+        path.as_str(),
+        info.sender.as_str(),
+    )?;
 
-    if is_in_claim_window_ {
-        if !config.reserve_root_names {
-            return Err(ContractError::ReserveRootNameDisabled {});
-        }
-
-        let path_as_base_owner =
-            get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
-
-        if let Some(path_as_base_owner) = path_as_base_owner {
-            if info.sender.to_string() == path_as_base_owner {
-                payment_details = None
-            } else {
-                return Err(ContractError::RootInClaimWindowToken {});
-            }
-        }
-    }
-
-    if let Some(payment_details) = payment_details {
-        match payment_details {
+    if payment_details.is_some() && !override_payment {
+        match payment_details.unwrap() {
             PaymentDetails::Native { denom, amount } => {
                 let paid_amount = must_pay(&info, &denom)?;
                 mint(
