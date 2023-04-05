@@ -5,7 +5,7 @@ use crate::msg::PaymentDetails;
 use cosmwasm_std::Addr;
 use cw_storage_plus::Item;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
 pub struct Config {
     pub whoami_address: String,
     pub admin: Addr,

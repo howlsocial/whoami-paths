@@ -83,18 +83,16 @@ fn get_dens_owner(
     token_id: String,
     address_minting_the_path: String,
 ) -> Option<String> {
-    let resp: Option<String> = querier
+    querier
         .query_wasm_smart(
             &address_minting_the_path,
             &Cw721QueryMsg::OwnerOf {
-                token_id: token_id,
+                token_id,
                 include_expired: None,
             },
         )
         .map(|resp: OwnerOfResponse| resp.owner)
-        .ok();
-
-    return resp;
+        .ok()
 }
 
 fn is_in_claim_window(
@@ -358,9 +356,9 @@ pub fn execute_mint_path(
         info.sender.as_str(),
     )?;
 
-    if payment_details.is_some() && !override_payment {
-        match payment_details.unwrap() {
-            PaymentDetails::Native { denom, amount } => {
+    if let Some(pd) = payment_details {
+        match (pd, override_payment) {
+            (PaymentDetails::Native { denom, amount }, false) => {
                 let paid_amount = must_pay(&info, &denom)?;
                 mint(
                     env,
@@ -372,8 +370,19 @@ pub fn execute_mint_path(
                     amount,
                 )
             }
-            // TODO: Improve error
-            PaymentDetails::Cw20 { .. } => Err(ContractError::Unauthorized {}),
+            (PaymentDetails::Cw20 { .. }, false) => Err(ContractError::Unauthorized {}),
+            (PaymentDetails::Cw20 { .. }, true) | (PaymentDetails::Native { .. }, true) => {
+                nonpayable(&info)?;
+                mint(
+                    env,
+                    config.whoami_address,
+                    token_id,
+                    path,
+                    info.sender.to_string(),
+                    Uint128::zero(),
+                    Uint128::zero(),
+                )
+            }
         }
     } else {
         nonpayable(&info)?;
@@ -555,8 +564,7 @@ pub fn query_payment_details_balance(deps: Deps, env: Env) -> StdResult<Binary> 
 
 pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary> {
     let config = CONFIG.load(deps.storage)?;
-    let path_as_base_owner =
-        get_dens_owner(&deps.querier, path.clone(), config.whoami_address.clone());
+    let path_as_base_owner = get_dens_owner(&deps.querier, path, config.whoami_address.clone());
 
     to_binary(&ClaimInfoResponse {
         is_in_claim_window: is_in_claim_window(
@@ -570,7 +578,7 @@ pub fn query_claim_info(deps: Deps, env: Env, path: String) -> StdResult<Binary>
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
-    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema, Eq)]
     pub struct ConfigV100 {
         pub whoami_address: String,
         pub admin: Addr,

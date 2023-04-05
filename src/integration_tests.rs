@@ -1167,7 +1167,7 @@ mod tests {
 
             // Mint the name
             let root_token_id = "another_root".to_string();
-            mint_name(&mut app, whoami.clone(), USER2, &root_token_id).unwrap();
+            mint_name(&mut app, whoami, USER2, &root_token_id).unwrap();
 
             let path = root_token_id.clone();
 
@@ -1191,7 +1191,7 @@ mod tests {
 
             // Mint the name
             let root_token_id = "another_root".to_string();
-            mint_name(&mut app, whoami.clone(), USER2, &root_token_id).unwrap();
+            mint_name(&mut app, whoami, USER2, &root_token_id).unwrap();
 
             let path = root_token_id.clone();
 
@@ -1207,7 +1207,7 @@ mod tests {
 
             // Mint the name
             let root_token_id = "another_root".to_string();
-            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+            mint_name(&mut app, whoami, USER, &root_token_id).unwrap();
 
             let path = root_token_id.clone();
 
@@ -1266,7 +1266,7 @@ mod tests {
 
             // Mint the name
             let root_token_id = "another_root".to_string();
-            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+            mint_name(&mut app, whoami, USER, &root_token_id).unwrap();
 
             let path = root_token_id.clone();
 
@@ -1290,9 +1290,9 @@ mod tests {
 
             // Mint the name
             let root_token_id = "another_root".to_string();
-            mint_name(&mut app, whoami.clone(), USER, &root_token_id).unwrap();
+            mint_name(&mut app, whoami, USER, &root_token_id).unwrap();
 
-            let path = root_token_id.clone();
+            let path = root_token_id;
 
             mint_path_cw20(&mut app, cw20_addr, paths, USER, Uint128::new(100), &path).unwrap();
         }
